@@ -1,0 +1,104 @@
+spring:
+  application:
+    name: docsearch
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: ${SERVER_PORT:8080}
+  compression:
+    enabled: true
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    redis:
+      enabled: true
+    db:
+      enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+docsearch:
+  opensearch:
+    host: ${OPENSEARCH_HOST:localhost}
+    port: ${OPENSEARCH_PORT:9200}
+    scheme: ${OPENSEARCH_SCHEME:http}
+    username: ${OPENSEARCH_USERNAME:}
+    password: ${OPENSEARCH_PASSWORD:}
+    index-prefix: ${OPENSEARCH_INDEX_PREFIX:docs}
+    shards: 3
+    replicas: 1
+  cache:
+    search-ttl-seconds: 60
+    document-ttl-seconds: 300
+  rate-limit:
+    enabled: true
+    capacity: 100        # tokens per window per tenant
+    window-seconds: 60   # window length
+  tenancy:
+    header: X-Tenant-ID
+    require-header: true
+    public-paths:
+      - /actuator/**
+      - /swagger-ui/**
+      - /swagger-ui.html
+      - /v3/api-docs/**
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    url: jdbc:h2:mem:docsearch;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:postgres}:${POSTGRES_PORT:5432}/${POSTGRES_DB:docsearch}
+    username: ${POSTGRES_USER:docsearch}
+    password: ${POSTGRES_PASSWORD:docsearch}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}

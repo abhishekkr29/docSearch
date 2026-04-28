@@ -1,0 +1,308 @@
+{
+	"info": {
+		"name": "docSearch API",
+		"_postman_id": "f3d8a1b2-1c1c-4ec6-9d3a-92b9b1b21b00",
+		"description": "Distributed Document Search Service prototype — full surface: CRUD, multi-tenant search, validation/auth errors, and rate-limit demo. Set base_url + tenant in collection variables.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{ "key": "base_url",   "value": "http://localhost:8080" },
+		{ "key": "tenant",     "value": "tenantId" },
+		{ "key": "other_tenant", "value": "globex" },
+		{ "key": "doc_id",     "value": "REPLACE_WITH_ID_FROM_INDEX_RESPONSE" }
+	],
+	"item": [
+		{
+			"name": "Health",
+			"item": [
+				{
+					"name": "Liveness + dependency status",
+					"request": {
+						"method": "GET",
+						"url": "{{base_url}}/actuator/health",
+						"description": "Aggregate liveness — drills into OpenSearch, Redis, and Postgres via Spring Boot Actuator's health indicators."
+					}
+				},
+				{
+					"name": "Info",
+					"request": {
+						"method": "GET",
+						"url": "{{base_url}}/actuator/info"
+					}
+				}
+			]
+		},
+		{
+			"name": "Documents",
+			"item": [
+				{
+					"name": "Index document (tenant A)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('201 Created', () => pm.response.to.have.status(201));",
+									"const body = pm.response.json();",
+									"if (body && body.id) {",
+									"  pm.collectionVariables.set('doc_id', body.id);",
+									"  console.log('captured doc_id =', body.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "X-Tenant-ID",  "value": "{{tenant}}" }
+						],
+						"url": "{{base_url}}/documents",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"title\": \"Distributed Document Search Service\",\n  \"content\": \"A prototype of a distributed document search service capable of searching through millions of documents with sub-second response times. This service demonstrate enterprise-grade architectural patterns including multi-tenancy, fault tolerance, and horizontal scalability.\",\n  \"author\": \"ezio\",\n  \"tags\": \"distributed,systems\"\n}"
+						},
+						"description": "Indexes a document for tenant A. The test script captures the returned id into the doc_id collection variable so subsequent requests reuse it."
+					}
+				},
+				{
+					"name": "Index document (tenant B)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "X-Tenant-ID",  "value": "{{other_tenant}}" }
+						],
+						"url": "{{base_url}}/documents",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"title\": \"Internal Confidential Memo\",\n  \"content\": \"This document belongs only to globex and must never be returned in a search by tenant tenantId.\",\n  \"author\": \"dave\",\n  \"tags\": \"confidential,memo\"\n}"
+						},
+						"description": "Indexes a document under a *different* tenant. Used to prove tenant isolation against the search request below."
+					}
+				},
+				{
+					"name": "Get document by id",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "X-Tenant-ID", "value": "{{tenant}}" }],
+						"url": "{{base_url}}/documents/{{doc_id}}",
+						"description": "Fetches the document captured from the previous index call. Backed by the document cache (TTL 5m)."
+					}
+				},
+				{
+					"name": "Delete document",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "X-Tenant-ID", "value": "{{tenant}}" }],
+						"url": "{{base_url}}/documents/{{doc_id}}",
+						"description": "Soft-removes the document from Postgres and the OpenSearch index. Evicts the document and search caches."
+					}
+				}
+			]
+		},
+		{
+			"name": "Search",
+			"item": [
+				{
+					"name": "Basic query (tenant A)",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "X-Tenant-ID", "value": "{{tenant}}" }],
+						"url": {
+							"raw": "{{base_url}}/search?q=distributed&page=0&size=10",
+							"host": ["{{base_url}}"],
+							"path": ["search"],
+							"query": [
+								{ "key": "q",    "value": "distributed" },
+								{ "key": "page", "value": "0" },
+								{ "key": "size", "value": "10" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Pagination (size=2, page=1)",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "X-Tenant-ID", "value": "{{tenant}}" }],
+						"url": {
+							"raw": "{{base_url}}/search?q=distributed&page=1&size=2",
+							"host": ["{{base_url}}"],
+							"path": ["search"],
+							"query": [
+								{ "key": "q",    "value": "distributed" },
+								{ "key": "page", "value": "1" },
+								{ "key": "size", "value": "2" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Tenant isolation — A cannot see B's doc",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('200 OK', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"const titles = (body.hits || []).map(h => h.title || '');",
+									"pm.test('no globex docs leak into tenantId results', () => {",
+									"  pm.expect(titles.join(' ').toLowerCase()).to.not.include('confidential');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "X-Tenant-ID", "value": "{{tenant}}" }],
+						"url": {
+							"raw": "{{base_url}}/search?q=confidential",
+							"host": ["{{base_url}}"],
+							"path": ["search"],
+							"query": [{ "key": "q", "value": "confidential" }]
+						},
+						"description": "Searches as tenant A for a term that only exists in tenant B's data. The test asserts no leak."
+					}
+				},
+				{
+					"name": "Same query as tenant B — sees its own doc",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "X-Tenant-ID", "value": "{{other_tenant}}" }],
+						"url": {
+							"raw": "{{base_url}}/search?q=confidential",
+							"host": ["{{base_url}}"],
+							"path": ["search"],
+							"query": [{ "key": "q", "value": "confidential" }]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Errors & validation",
+			"item": [
+				{
+					"name": "Missing X-Tenant-ID → 400",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": "{{base_url}}/search?q=anything",
+						"description": "Confirms the TenantFilter rejects requests with no tenant header."
+					}
+				},
+				{
+					"name": "Search with empty q → 400",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "X-Tenant-ID", "value": "{{tenant}}" }],
+						"url": "{{base_url}}/search?q="
+					}
+				},
+				{
+					"name": "Get nonexistent doc → 404",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('404 Not Found', () => pm.response.to.have.status(404));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "X-Tenant-ID", "value": "{{tenant}}" }],
+						"url": "{{base_url}}/documents/00000000-0000-0000-0000-000000000000"
+					}
+				},
+				{
+					"name": "Index with empty title → 400",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('400 Bad Request (validation)', () => pm.response.to.have.status(400));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "X-Tenant-ID",  "value": "{{tenant}}" }
+						],
+						"url": "{{base_url}}/documents",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"title\": \"\",\n  \"content\": \"missing title should be rejected by @NotBlank\"\n}"
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Rate limit",
+			"description": "Run this folder via the Collection Runner with iterations >= 110 to push past the per-tenant fixed window (default 100/min). Expect 429 responses with Retry-After + X-RateLimit-* headers.",
+			"item": [
+				{
+					"name": "Repeat search to trip the limiter",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 429) {",
+									"  pm.test('Retry-After header present', () => pm.response.headers.has('Retry-After'));",
+									"  pm.test('X-RateLimit-Remaining header present', () => pm.response.headers.has('X-RateLimit-Remaining'));",
+									"  console.log('429 hit at iteration', pm.info.iteration, '- limiter is working');",
+									"} else {",
+									"  pm.test('200 OK before limit', () => pm.response.to.have.status(200));",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "X-Tenant-ID", "value": "{{tenant}}" }],
+						"url": "{{base_url}}/search?q=distributed"
+					}
+				}
+			]
+		}
+	]
+}
