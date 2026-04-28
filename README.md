@@ -85,7 +85,9 @@ curl -sS -H 'X-Tenant-ID: tenantId' http://localhost:8080/documents/<id>
 curl -sS -X DELETE -H 'X-Tenant-ID: tenantId' http://localhost:8080/documents/<id>
 ```
 
-A Postman collection is in [`postman/`](postman/).
+A Postman collection is in [`postman/`](postman/) and a curl walk-through
+covering CRUD, multi-tenant isolation, validation errors, and the rate-limit
+demo lives at [`scripts/api-examples.sh`](scripts/api-examples.sh).
 
 ## Local development (without Docker)
 
@@ -94,10 +96,28 @@ the `dev` profile uses an in-memory H2 in PostgreSQL-compat mode.
 
 ```bash
 ./gradlew bootRun                     # default profile = dev (H2 + local OS/Redis)
-./gradlew test                        # run tests
+./gradlew test                        # run tests (23 tests across 5 classes)
+./gradlew build                       # full build incl. tests + bootJar
 ./gradlew bootJar && \
   java -jar build/libs/docsearch.jar  # standalone jar
 ```
+
+## Tests
+
+`./gradlew test` runs **23 tests across 5 classes**:
+
+| Class                                    | What it covers                                                  |
+| ---------------------------------------- | --------------------------------------------------------------- |
+| `TenantContextTest`                      | ThreadLocal set/get/require/clear + cross-thread isolation      |
+| `RateLimitServiceTest`                   | Lua-script result mapping, disabled mode, per-tenant key shape  |
+| `DocumentControllerWebTest` (`@WebMvcTest`) | CRUD happy + 400 validation + 404 + missing/invalid tenant + 429 |
+| `SearchControllerWebTest` (`@WebMvcTest`)   | Tenant header gate, rate-limit headers, 429 envelope            |
+| `DocsearchApplicationTests`              | Smoke test the entry-point class loads                          |
+
+Slice tests stand up only the controller + filters + advice (`MockMvc`),
+so the suite runs in <1 s and needs no Docker. End-to-end coverage of the
+real OpenSearch + Redis paths is exercised by `scripts/api-examples.sh`
+against the live `docker compose` stack.
 
 ## Configuration
 

@@ -39,19 +39,19 @@ curl -sS -X POST "$BASE_URL/documents" \
 
 hr "4. Search as tenant A"
 curl -sS "$BASE_URL/search?q=distributed&page=0&size=10" \
-	-H "X-Tenant-ID: $TENANT_A" | jq '{total, hits: (.hits | length)}'
+	-H "X-Tenant-ID: $TENANT_A" | jq '{totalHits, hits: (.hits | length)}'
 
 hr "5. Pagination — size=2, page=1"
 curl -sS "$BASE_URL/search?q=distributed&page=1&size=2" \
-	-H "X-Tenant-ID: $TENANT_A" | jq '{total, page: .page, size: .size, hits: (.hits | length)}'
+	-H "X-Tenant-ID: $TENANT_A" | jq '{totalHits, page, size, hits: (.hits | length)}'
 
 hr "6. Tenant isolation — A queries for a term only present in B"
 curl -sS "$BASE_URL/search?q=confidential" \
-	-H "X-Tenant-ID: $TENANT_A" | jq '{total, hits: [.hits[]?.title]}'
+	-H "X-Tenant-ID: $TENANT_A" | jq '{totalHits, hits: [.hits[]?.title]}'
 
 hr "7. Same query as tenant B — sees its own doc"
 curl -sS "$BASE_URL/search?q=confidential" \
-	-H "X-Tenant-ID: $TENANT_B" | jq '{total, hits: [.hits[]?.title]}'
+	-H "X-Tenant-ID: $TENANT_B" | jq '{totalHits, hits: [.hits[]?.title]}'
 
 hr "8. Get document by id (cache hit on second call within 5 min)"
 curl -sS "$BASE_URL/documents/$DOC_ID" -H "X-Tenant-ID: $TENANT_A" | jq .
